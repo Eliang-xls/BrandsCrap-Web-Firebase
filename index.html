@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Chosen Palette: Calm Neutral Harmony -->
+    <!-- Application Structure Plan: The application is structured as a tab-based single-page dashboard. The default view is the 'Dashboard', providing high-level KPIs (Total Brands, Run Stats), core task controls, and key visualizations (Run Success Ratio, Brands per Source). This design was chosen to give users an immediate, at-a-glance understanding of the scraper's health and performance. Users can then navigate to the 'Data Explorer' tab for detailed, interactive exploration of the collected brand data with search and filter capabilities, or the 'Logs & Alerts' tab for diagnostics. This task-oriented structure separates high-level monitoring from deep-dive analysis, creating a more intuitive and efficient user flow compared to a single, cluttered view. -->
+    <!-- Visualization & Content Choices: 
+        - Report Info: Overall scraper statistics (total runs, success/fail counts). -> Goal: Inform/Compare. -> Viz/Presentation: Large KPI cards and a Donut Chart. -> Interaction: Hover on chart for details. -> Justification: KPI cards offer instant clarity, while the donut chart provides a quick visual breakdown of operational reliability. -> Library: Chart.js (Canvas).
+        - Report Info: Number of brands collected from different sources. -> Goal: Compare. -> Viz/Presentation: Bar Chart. -> Interaction: Hover for exact numbers. -> Justification: Easily compares the effectiveness of different data sources. -> Library: Chart.js (Canvas).
+        - Report Info: Detailed list of all scraped brands. -> Goal: Organize/Explore. -> Viz/Presentation: Interactive HTML Table. -> Interaction: Live text search to filter the table. -> Justification: Enables users to efficiently find specific brands or classifications within a large dataset. -> Library: Vanilla JS.
+        - Report Info: System logs and error notifications. -> Goal: Inform/Diagnose. -> Viz/Presentation: Tabbed, auto-scrolling log viewers. -> Interaction: Toggle between logs and alerts. -> Justification: Separates routine operational messages from critical alerts, aiding in quick diagnostics. -> Library: Vanilla JS.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brand Intelligence Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F8F7F4; /* Warm Neutral Background */
+            color: #4A5568;
+        }
+        .tab-active {
+            border-color: #4299E1; /* Muted Accent Blue */
+            color: #2B6CB0;
+            background-color: #EBF8FF;
+        }
+        .tab-inactive {
+            border-color: transparent;
+            color: #718096;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 350px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+
+        <!-- Header -->
+        <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">Brand Intelligence Dashboard</h1>
+                <p class="text-gray-500 mt-1">Real-time scraping analytics and data exploration.</p>
+            </div>
+            <div id="statusIndicator" class="flex items-center mt-4 sm:mt-0 py-2 px-4 rounded-full bg-gray-200 text-gray-700 transition-colors duration-300">
+                <div id="statusIndicatorDot" class="w-3 h-3 rounded-full bg-gray-400 mr-3"></div>
+                <span id="statusIndicatorText" class="font-semibold">Initializing</span>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="flex border-b-2 border-gray-200 mb-6">
+            <button data-tab="dashboard" class="nav-tab py-3 px-6 font-semibold border-b-2 transition-colors duration-200 tab-active">Dashboard</button>
+            <button data-tab="explorer" class="nav-tab py-3 px-6 font-semibold border-b-2 transition-colors duration-200 tab-inactive">Data Explorer</button>
+            <button data-tab="logs" class="nav-tab py-3 px-6 font-semibold border-b-2 transition-colors duration-200 tab-inactive">Logs & Alerts</button>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main>
+            <!-- Dashboard View -->
+            <div id="dashboard" class="tab-content">
+                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <!-- Task Controls -->
+                    <div class="md:col-span-2 lg:col-span-4 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h2 class="text-lg font-semibold mb-4 text-gray-700">Task Control</h2>
+                        <p class="text-sm text-gray-500 mb-4">Manage the data collection process. The simulation will run for a short duration, collecting mock data from various sources.</p>
+                        <div class="flex flex-wrap gap-3">
+                            <button id="startButton" class="bg-blue-500 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-blue-600 transition duration-300 flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+                                <span class="mr-2">▶</span> Start Scraping
+                            </button>
+                            <button id="stopButton" class="bg-red-500 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-red-600 transition duration-300 flex items-center disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                                <span class="mr-2">■</span> Stop Scraping
+                            </button>
+                            <button id="scheduleButton" class="bg-gray-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-gray-700 transition duration-300 flex items-center">
+                                <span class="mr-2">◷</span> Schedule (Soon)
+                            </button>
+                        </div>
+                    </div>
+                    <!-- KPI Cards -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h3 class="text-md font-semibold text-gray-500">Total Brands Collected</h3>
+                        <p id="kpiTotalBrands" class="text-4xl font-bold text-gray-800 mt-2">0</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h3 class="text-md font-semibold text-gray-500">Total Runs</h3>
+                        <p id="kpiTotalRuns" class="text-4xl font-bold text-gray-800 mt-2">0</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h3 class="text-md font-semibold text-gray-500">Success Rate</h3>
+                        <p id="kpiSuccessRate" class="text-4xl font-bold text-green-500 mt-2">0%</p>
+                    </div>
+                     <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h3 class="text-md font-semibold text-gray-500">Elapsed Time</h3>
+                        <p id="elapsedTime" class="text-4xl font-bold text-gray-800 mt-2">00:00</p>
+                    </div>
+
+                    <!-- Charts -->
+                    <div class="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h2 class="text-lg font-semibold mb-2 text-gray-700">Run Status</h2>
+                        <p class="text-sm text-gray-500 mb-4">A breakdown of all completed scraping tasks.</p>
+                        <div class="chart-container">
+                            <canvas id="runStatusChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h2 class="text-lg font-semibold mb-2 text-gray-700">Brands by Source</h2>
+                        <p class="text-sm text-gray-500 mb-4">Shows which sources are providing the most data.</p>
+                         <div class="chart-container">
+                            <canvas id="brandsBySourceChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Explorer View -->
+            <div id="explorer" class="tab-content hidden">
+                 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-lg font-semibold mb-2 text-gray-700">Explore Collected Data</h2>
+                    <p class="text-sm text-gray-500 mb-4">Search and review all the brand information that has been collected. New data will appear here in real-time as it's scraped.</p>
+                    <input id="searchInput" type="text" placeholder="Search by name, founder, or classification..." class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full bg-white">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Logo</th>
+                                    <th class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+                                    <th class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Founder</th>
+                                    <th class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Classification</th>
+                                    <th class="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Source</th>
+                                </tr>
+                            </thead>
+                            <tbody id="brandsTableBody" class="divide-y divide-gray-200">
+                                <tr><td colspan="5" class="text-center p-8 text-gray-500">No data collected yet. Start a scraping task to begin.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logs & Alerts View -->
+            <div id="logs" class="tab-content hidden">
+                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h2 class="text-lg font-semibold mb-2 text-gray-700">System Logs</h2>
+                        <p class="text-sm text-gray-500 mb-4">Detailed operational messages from the scraper.</p>
+                        <div id="logsContainer" class="bg-gray-800 text-white font-mono text-xs p-4 rounded-lg h-80 overflow-y-auto">
+                            <p class="text-gray-400">> System initialized. Waiting for task...</p>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h2 class="text-lg font-semibold mb-2 text-gray-700">Alerts</h2>
+                        <p class="text-sm text-gray-500 mb-4">Notifications for errors or significant events.</p>
+                        <div id="alertsContainer" class="space-y-3 max-h-80 overflow-y-auto p-1">
+                            <p class="text-gray-500">No alerts yet.</p>
+                        </div>
+                    </div>
+                 </div>
+            </div>
+        </main>
+
+    </div>
+
+    <script type="module">
+        // Firebase is not included here as per the prompt to focus on a frontend SPA.
+        // Data will be stored in-memory for this demonstration.
+        // For persistence, you would integrate Firebase here.
+
+        // --- DOM Elements ---
+        const navTabs = document.querySelectorAll('.nav-tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const scheduleButton = document.getElementById('scheduleButton');
+        
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusIndicatorDot = document.getElementById('statusIndicatorDot');
+        const statusIndicatorText = document.getElementById('statusIndicatorText');
+        
+        const kpiTotalBrands = document.getElementById('kpiTotalBrands');
+        const kpiTotalRuns = document.getElementById('kpiTotalRuns');
+        const kpiSuccessRate = document.getElementById('kpiSuccessRate');
+        const elapsedTimeEl = document.getElementById('elapsedTime');
+
+        const brandsTableBody = document.getElementById('brandsTableBody');
+        const searchInput = document.getElementById('searchInput');
+
+        const logsContainer = document.getElementById('logsContainer');
+        const alertsContainer = document.getElementById('alertsContainer');
+
+        // --- Chart Contexts and Instances ---
+        const runStatusCtx = document.getElementById('runStatusChart').getContext('2d');
+        const brandsBySourceCtx = document.getElementById('brandsBySourceChart').getContext('2d');
+        let runStatusChart, brandsBySourceChart;
+
+        // --- App State ---
+        let state = {
+            isScraping: false,
+            timerInterval: null,
+            elapsedSeconds: 0,
+            allBrands: [],
+            stats: {
+                totalRuns: 0,
+                successfulRuns: 0,
+                failedRuns: 0,
+                brandsBySource: {}
+            },
+            currentRunBrandCount: 0,
+        };
+        const mockTargets = ["TechCrunch", "Forbes", "Wikipedia", "BrandDirectory", "SuperBrands"];
+        
+        // --- Navigation ---
+        navTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                navTabs.forEach(t => t.classList.replace('tab-active', 'tab-inactive'));
+                tab.classList.replace('tab-inactive', 'tab-active');
+
+                tabContents.forEach(content => {
+                    content.classList.add('hidden');
+                    if (content.id === tab.dataset.tab) {
+                        content.classList.remove('hidden');
+                    }
+                });
+            });
+        });
+
+        // --- Chart Initialization ---
+        function initCharts() {
+            Chart.defaults.font.family = 'Inter';
+            Chart.defaults.color = '#6b7280';
+
+            const tooltipPlugin = {
+                titleFont: { weight: 'bold' },
+                bodyFont: { size: 14 },
+                padding: 12,
+                boxPadding: 4,
+                cornerRadius: 8,
+            };
+
+            const legendPlugin = {
+                position: 'bottom',
+                labels: {
+                    padding: 20,
+                    font: { size: 14 }
+                }
+            };
+            
+            // Run Status Chart (Donut)
+            runStatusChart = new Chart(runStatusCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Successful', 'Failed'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: ['#48BB78' /* green-500 */, '#F56565' /* red-500 */],
+                        borderColor: '#F8F7F4',
+                        borderWidth: 4,
+                        hoverOffset: 8,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '70%',
+                    plugins: {
+                        legend: legendPlugin,
+                        tooltip: tooltipPlugin
+                    }
+                }
+            });
+
+            // Brands by Source Chart (Bar)
+            brandsBySourceChart = new Chart(brandsBySourceCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Brands Collected',
+                        data: [],
+                        backgroundColor: '#63B3ED', // Muted Blue
+                        borderRadius: 6,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                drawBorder: false,
+                            },
+                            ticks: {
+                                precision: 0
+                            }
+                        },
+                        x: {
+                           grid: {
+                                display: false,
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: tooltipPlugin
+                    }
+                }
+            });
+        }
+
+        // --- UI Update Functions ---
+        function updateUI() {
+            // Buttons
+            startButton.disabled = state.isScraping;
+            stopButton.disabled = !state.isScraping;
+
+            // Status Indicator
+            if (state.isScraping) {
+                statusIndicator.classList.replace('bg-gray-200', 'bg-blue-100');
+                statusIndicatorDot.classList.replace('bg-gray-400', 'bg-blue-500');
+                statusIndicatorText.textContent = 'Scraping...';
+            } else if (state.stats.totalRuns > 0) {
+                statusIndicator.classList.replace('bg-blue-100', 'bg-red-100');
+                statusIndicatorDot.classList.replace('bg-blue-500', 'bg-red-500');
+                statusIndicatorText.textContent = 'Stopped';
+            } else {
+                 statusIndicator.classList.remove('bg-red-100', 'bg-blue-100');
+                 statusIndicatorDot.classList.remove('bg-red-500', 'bg-blue-500');
+                 statusIndicator.classList.add('bg-gray-200');
+                 statusIndicatorDot.classList.add('bg-gray-400');
+                 statusIndicatorText.textContent = 'Idle';
+            }
+            
+            // KPIs
+            kpiTotalBrands.textContent = state.allBrands.length;
+            kpiTotalRuns.textContent = state.stats.totalRuns;
+            const successRate = state.stats.totalRuns > 0 ? Math.round((state.stats.successfulRuns / state.stats.totalRuns) * 100) : 0;
+            kpiSuccessRate.textContent = `${successRate}%`;
+            kpiSuccessRate.className = `text-4xl font-bold mt-2 ${successRate >= 70 ? 'text-green-500' : 'text-amber-500'}`;
+
+            // Charts
+            runStatusChart.data.datasets[0].data = [state.stats.successfulRuns, state.stats.failedRuns];
+            runStatusChart.update('none');
+
+            const sourceLabels = Object.keys(state.stats.brandsBySource);
+            const sourceData = Object.values(state.stats.brandsBySource);
+            brandsBySourceChart.data.labels = sourceLabels;
+            brandsBySourceChart.data.datasets[0].data = sourceData;
+            brandsBySourceChart.update('none');
+            
+            // Table
+            renderTable(state.allBrands, searchInput.value);
+        }
+        
+        function renderTable(brands, filter) {
+            if (brandsTableBody.querySelector('td[colspan="5"]')) {
+                brandsTableBody.innerHTML = '';
+            }
+
+            const filteredBrands = brands.filter(b => 
+                !filter || 
+                b.name.toLowerCase().includes(filter.toLowerCase()) ||
+                b.founder.toLowerCase().includes(filter.toLowerCase()) ||
+                b.classification.toLowerCase().includes(filter.toLowerCase())
+            );
+
+            if (filteredBrands.length === 0 && brands.length > 0) {
+                 brandsTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-8 text-gray-500">No brands match your search.</td></tr>`;
+                 return;
+            }
+            
+            // To avoid re-rendering everything on each update, we can just add new rows
+            // For simplicity here, we'll re-render, but in a large-scale app, we'd diff.
+            brandsTableBody.innerHTML = ''; 
+            filteredBrands.forEach(brand => {
+                 const row = document.createElement('tr');
+                 row.className = "hover:bg-gray-50 transition-colors duration-150";
+                 row.innerHTML = `
+                    <td class="py-3 px-4"><img src="${brand.logo}" class="rounded-full h-10 w-10 object-cover bg-gray-200"></td>
+                    <td class="py-3 px-4 font-medium text-gray-800">${brand.name}</td>
+                    <td class="py-3 px-4">${brand.founder}</td>
+                    <td class="py-3 px-4"><span class="px-2 py-1 font-semibold leading-tight text-blue-700 bg-blue-100 rounded-full text-xs">${brand.classification}</span></td>
+                    <td class="py-3 px-4 text-sm text-gray-600">${brand.source}</td>
+                `;
+                brandsTableBody.prepend(row);
+            });
+             if (brandsTableBody.innerHTML === '') {
+                 brandsTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-8 text-gray-500">No data collected yet. Start a scraping task to begin.</td></tr>`;
+            }
+        }
+
+        function log(message, type = 'info') {
+            const p = document.createElement('p');
+            let typeClass = 'text-gray-400';
+            if (type === 'error') typeClass = 'text-red-400';
+            if (type === 'warning') typeClass = 'text-yellow-400';
+            if (type === 'success') typeClass = 'text-green-400';
+            p.className = typeClass;
+            p.innerHTML = `<span class="text-gray-500 mr-2">${new Date().toLocaleTimeString()} &gt;</span> ${message}`;
+            logsContainer.prepend(p);
+        }
+
+        function addAlert(message, type = 'error') {
+            if(alertsContainer.querySelector('.text-gray-500')) alertsContainer.innerHTML = '';
+            const alertDiv = document.createElement('div');
+            let colors = {
+                error: { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300' },
+                warning: { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300' },
+            };
+            const C = colors[type] || colors.error;
+            alertDiv.className = `p-3 rounded-lg border ${C.bg} ${C.text} ${C.border}`;
+            alertDiv.textContent = message;
+            alertsContainer.prepend(alertDiv);
+        }
+
+
+        // --- Core Logic ---
+        function startScraping() {
+            if (state.isScraping) return;
+            state.isScraping = true;
+            state.stats.totalRuns++;
+            state.currentRunBrandCount = 0;
+            
+            log("Scraping process started.", 'success');
+            startTimer();
+            updateUI();
+
+            let targetIndex = 0;
+            const scrapeInterval = setInterval(() => {
+                if (!state.isScraping) {
+                    clearInterval(scrapeInterval);
+                    return;
+                }
+                
+                if (targetIndex >= mockTargets.length) {
+                    stopScraping(true);
+                    return;
+                }
+
+                const target = mockTargets[targetIndex];
+                log(`Scraping target: <strong>${target}</strong>`);
+
+                // Simulate finding brands
+                const newBrandsCount = Math.floor(Math.random() * 5) + 2;
+                for (let i = 0; i < newBrandsCount; i++) {
+                    const newBrand = generateMockBrand(target);
+                    state.allBrands.push(newBrand);
+                    state.currentRunBrandCount++;
+                    state.stats.brandsBySource[target] = (state.stats.brandsBySource[target] || 0) + 1;
+                }
+                
+                // Simulate an error
+                if (Math.random() < 0.15) {
+                    const errorMsg = `Error scraping ${target}. Retrying...`;
+                    log(errorMsg, 'error');
+                    addAlert(`Failed to fetch from ${target}. The system will continue with the next source.`, 'error');
+                }
+                
+                updateUI();
+                targetIndex++;
+
+            }, 2000); 
+            state.scrapeInterval = scrapeInterval;
+        }
+
+        function stopScraping(isSuccess = false) {
+            if (!state.isScraping) return;
+            clearInterval(state.scrapeInterval);
+            state.isScraping = false;
+            stopTimer();
+
+            if (isSuccess) {
+                state.stats.successfulRuns++;
+                log(`Scraping process completed. Found <strong>${state.currentRunBrandCount}</strong> new brands.`, 'success');
+            } else {
+                state.stats.failedRuns++;
+                log("Scraping process stopped by user.", 'warning');
+                addAlert('Task stopped manually by user.', 'warning');
+            }
+            updateUI();
+        }
+
+        // --- Timer ---
+        function startTimer() {
+            state.elapsedSeconds = -1;
+            updateTimer();
+            state.timerInterval = setInterval(updateTimer, 1000);
+        }
+        function stopTimer() {
+            clearInterval(state.timerInterval);
+        }
+        function updateTimer() {
+             state.elapsedSeconds++;
+             const m = String(Math.floor(state.elapsedSeconds / 60)).padStart(2, '0');
+             const s = String(state.elapsedSeconds % 60).padStart(2, '0');
+             elapsedTimeEl.textContent = `${m}:${s}`;
+        }
+
+        // --- Mock Data Generator ---
+        function generateMockBrand(source) {
+            const names = ["Apex", "Vortex", "Zenith", "Nova", "Pulse", "Fusion", "Equinox", "Orion", "Celeste"];
+            const domains = ["Industries", "Dynamics", "Solutions", "Global", "Enterprises", "Labs", "Works"];
+            const founders = ["J. Doe", "A. Smith", "K. Ray", "S. Wilson", "C. Lee", "M. Chen", "R. Singh"];
+            const classifications = ["Technology", "Finance", "Healthcare", "Retail", "Automotive", "E-commerce", "SaaS"];
+            
+            const name = `${names[Math.floor(Math.random() * names.length)]} ${domains[Math.floor(Math.random() * domains.length)]}`;
+            const logoText = name.split(" ").map(n => n[0]).join('');
+            
+            return {
+                name: name,
+                logo: `https://placehold.co/80x80/EBF8FF/2B6CB0?text=${logoText}&font=inter`,
+                founder: founders[Math.floor(Math.random() * founders.length)],
+                classification: classifications[Math.floor(Math.random() * classifications.length)],
+                source: source
+            };
+        }
+        
+        // --- Event Listeners ---
+        startButton.addEventListener('click', startScraping);
+        stopButton.addEventListener('click', () => stopScraping(false));
+        scheduleButton.addEventListener('click', () => {
+            log('Schedule feature is not yet implemented.', 'warning');
+            addAlert('Task scheduling is a planned feature for a future update.', 'warning');
+        });
+        searchInput.addEventListener('input', () => {
+            renderTable(state.allBrands, searchInput.value);
+        });
+
+        // --- Initial Load ---
+        function initializeApp() {
+            log("Dashboard initialized successfully.");
+            initCharts();
+            updateUI();
+        }
+        
+        initializeApp();
+
+    </script>
+</body>  
+</html>
