@@ -616,7 +616,7 @@
         }
 
         // --- Core Scraping Logic ---
-        function startScraping() {
+         async function startScraping() {
             if (state.isScraping) return;
 
             const useTarget = state.isScheduled && state.targetBrandCount > 0;
@@ -636,7 +636,7 @@
             updateUI();
 
             let targetIndex = 0;
-            state.scrapeInterval = setInterval(() => {
+            state.scrapeInterval = setInterval(async () => {
                 if (!state.isScraping) return;
 
                 // Stop condition for non-target runs
@@ -654,9 +654,11 @@
                 log(`Scraping target: <strong>${target}</strong>`);
 
                 const newBrandsCount = Math.floor(Math.random() * 5) + 1;
+                let newBrandsBatch = [];
                 for (let i = 0; i < newBrandsCount; i++) {
                     const newBrand = generateMockBrand(target);
                     state.allBrands.push(newBrand);
+                    newBrandsBatch.push(newBrand);
                     state.currentRunBrandCount++;
                     state.stats.brandsBySource[target] = (state.stats.brandsBySource[target] || 0) + 1;
 
@@ -664,10 +666,13 @@
                     if (useTarget && state.allBrands.length >= targetTotal) {
                         log(`Target of ${targetTotal} total brands reached.`, 'success');
                         addAlert(`Successfully reached target, collected ${state.currentRunBrandCount} new brands.`, 'success');
+                        await saveBrands(newBrandsBatch);
                         stopScraping(true);
                         return; // Exit the loop and interval
                     }
                 }
+                // Save after each batch
+                await saveBrands(newBrandsBatch);
                 
                 if (Math.random() < 0.1) {
                     const errorMsg = `Error scraping ${target}.`;
@@ -679,6 +684,7 @@
                 targetIndex++;
             }, 1500);
         }
+
 
         function stopScraping(isSuccess = false) {
             if (!state.isScraping) return;
