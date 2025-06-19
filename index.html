@@ -171,6 +171,49 @@
                     </div>
                  </div>
             </div>
+
+            <!-- 计划状态显示 -->
+            <div class="bg-white p-4 rounded-lg border border-gray-200 mt-4">
+                <h3 class="text-sm font-semibold text-gray-500 mb-2">Schedule State</h3>
+                <div id="scheduleStatus" class="text-sm text-gray-500">No Schedule</div>
+            </div>
+
+            <!-- 计划模态框 -->
+            <div id="scheduleModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+                <div class="flex items-center justify-center min-h-screen p-4 text-center">
+                    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" id="scheduleOverlay"></div>
+                    <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                    <div class="inline-block align-middle w-full max-w-md p-4 my-8 overflow-hidden text-left bg-white shadow-xl transform transition-all sm:my-0 sm:align-middle sm:max-w-lg sm:rounded-lg">
+                        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4 border-b border-gray-200">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900" id="scheduleModalLabel" class="modal-title">Set Schedule</h3>
+                        </div>
+                        <div class="bg-white px-4 py-5 sm:p-6 sm:pb-4" class="modal-body">
+                            <p class="text-gray-500 mb-4">Scheduling with Target</p>
+                            <div class="mb-4">
+                                <label for="scheduleFrequency" class="block text-sm font-medium text-gray-700 mb-2">run frequency</label>
+                                <select id="scheduleFrequency" class="w-full p-2 border border-gray-300 rounded-md">
+                                    <option value="manual">manual</option>
+                                    <option value="daily">daily</option>
+                                    <option value="weekly">weekly</option>
+                                    <option value="monthly">monthly</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="targetCountInput" class="block text-sm font-medium text-gray-700 mb-2">Brands Target</label>
+                                <input type="number" id="targetCountInput" min="1" class="w-full p-2 border border-gray-300 rounded-md" value="50">
+                            </div>
+                        </div>
+                        <div class="bg-white px-4 py-3 sm:px-6 sm:py-4 sm:flex sm:flex-row-reverse border-t border-gray-200">
+                            <button type="button" id="closeScheduleModal" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                                Cancel
+                            </button>
+                            <button type="button" id="saveScheduleBtn" class="mt-3 w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                                Save Plan
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
 
     </div>
@@ -207,6 +250,17 @@
         const brandsBySourceCtx = document.getElementById('brandsBySourceChart').getContext('2d');
         let runStatusChart, brandsBySourceChart;
 
+        // --- Added Elements for Scheduling ---
+        const scheduleModal = document.getElementById('scheduleModal');
+        const scheduleOverlay = document.getElementById('scheduleOverlay');
+        const closeScheduleModal = document.getElementById('closeScheduleModal');
+        const setTargetBtn = document.getElementById('setTargetBtn');
+        const targetCountInput = document.getElementById('targetCountInput');
+        const scheduleForm = document.getElementById('scheduleForm');
+        const scheduleFrequency = document.getElementById('scheduleFrequency');
+        const saveScheduleBtn = document.getElementById('saveScheduleBtn');
+        const scheduleStatus = document.getElementById('scheduleStatus');
+
         // --- App State ---
         let state = {
             isScraping: false,
@@ -220,6 +274,10 @@
                 brandsBySource: {}
             },
             currentRunBrandCount: 0,
+            targetBrandCount: 0,
+            scheduledTask: null,
+            scheduleFrequency: 'manual', // 'daily', 'weekly', 'monthly'
+            isScheduled: false
         };
         const mockTargets = ["TechCrunch", "Forbes", "Wikipedia", "BrandDirectory", "SuperBrands"];
         
@@ -238,6 +296,39 @@
             });
         });
 
+        // --- Schedule Modal Initialization ---
+        function initScheduleModal() {
+            // 关闭模态框
+            closeScheduleModal.addEventListener('click', () => {
+                scheduleModal.classList.add('hidden');
+            });
+            
+            // 点击模态框外部关闭
+            scheduleOverlay.addEventListener('click', (e) => {
+                if (e.target === scheduleOverlay) {
+                    scheduleModal.classList.add('hidden');
+                }
+            });
+            
+            // 设置目标数
+            setTargetBtn.addEventListener('click', () => {
+                targetCountInput.value = state.targetBrandCount || 50;
+                scheduleModal.querySelector('.modal-title').textContent = 'Set Target';
+                scheduleModal.querySelector('.modal-body').innerHTML = `
+                    <p>Set Brands Numbers for Scraping</p>
+                    <input type="number" id="targetCountInput" min="1" class="w-full p-2 border border-gray-300 rounded mt-2" value="${state.targetBrandCount || 50}">
+                `;
+                scheduleModal.classList.remove('hidden');
+            });
+            
+            // 保存计划设置
+            saveScheduleBtn.addEventListener('click', saveSchedule);
+            
+            // 计划频率选择
+            scheduleFrequency.addEventListener('change', (e) => {
+                state.scheduleFrequency = e.target.value;
+            });
+}
         // --- Chart Initialization ---
         function initCharts() {
             Chart.defaults.font.family = 'Inter';
@@ -426,7 +517,189 @@
             alertDiv.textContent = message;
             alertsContainer.prepend(alertDiv);
         }
+        // --- 保存计划设置 ---
+        function saveSchedule() {
+            const frequency = scheduleFrequency.value;
+            const target = parseInt(targetCountInput.value) || 50;
+            
+            if (target < 1) {
+                addAlert('target numbers must be greater than 0', 'error');
+                return;
+            }
+            
+            state.scheduleFrequency = frequency;
+            state.targetBrandCount = target;
+            state.isScheduled = true;
+            
+            // 更新状态显示
+            updateScheduleStatus();
+            
+            // 根据频率设置计划任务
+            setupScheduledTask();
+            
+            // 关闭模态框
+            scheduleModal.classList.add('hidden');
+            addAlert(`setting up scheduled task: brands target ${target}，frequency ${getFrequencyText(frequency)}`, 'success');
+            log(`scheduling saved: brands target ${target}, frequency ${getFrequencyText(frequency)}`);
+        }
 
+        // --- 获取频率文本 ---
+        function getFrequencyText(frequency) {
+            const frequencyMap = {
+                'manual': 'manual',
+                'daily': 'daily',
+                'weekly': 'weekly',
+                'monthly': 'monthly'
+            };
+            return frequencyMap[frequency] || frequency;
+        }
+
+        // --- 设置计划任务 ---
+        function setupScheduledTask() {
+            if (state.scheduleFrequency === 'manual') {
+                // 手动模式不自动启动，仅保存目标数
+                state.scheduledTask = null;
+                return;
+            }
+            
+            // 根据频率设置定时器
+            let intervalMs;
+            switch(state.scheduleFrequency) {
+                case 'daily':
+                    intervalMs = 24 * 60 * 60 * 1000; // 24小时
+                    break;
+                case 'weekly':
+                    intervalMs = 7 * 24 * 60 * 60 * 1000; // 7天
+                    break;
+                case 'monthly':
+                    intervalMs = 30 * 24 * 60 * 60 * 1000; // 30天
+                    break;
+                default:
+                    intervalMs = null;
+            }
+            
+            if (intervalMs) {
+                state.scheduledTask = setInterval(() => {
+                    log(`automatically start the scheduled tasks: target ${state.targetBrandCount}`, 'success');
+                    startScrapingWithTarget();
+                }, intervalMs);
+                
+                // 显示下次执行时间
+                updateScheduleStatus();
+            }
+        }
+
+        // --- 带目标数的启动抓取 ---
+        function startScrapingWithTarget() {
+            if (state.isScraping) return;
+            
+            state.isScraping = true;
+            state.stats.totalRuns++;
+            state.currentRunBrandCount = 0;
+            state.targetReached = false;
+            
+            log(`start scraping, brands target number: ${state.targetBrandCount}`, 'success');
+            startTimer();
+            updateUI();
+            
+            let targetIndex = 0;
+            const scrapeInterval = setInterval(() => {
+                if (!state.isScraping || state.targetReached) {
+                    clearInterval(scrapeInterval);
+                    return;
+                }
+                
+                if (targetIndex >= mockTargets.length) {
+                    // 所有来源都已抓取，检查是否达到目标
+                    checkIfTargetReached();
+                    return;
+                }
+                
+                const target = mockTargets[targetIndex];
+                log(`Scraping target: <strong>${target}</strong>`);
+                
+                // 模拟找到品牌
+                const newBrandsCount = Math.floor(Math.random() * 5) + 2;
+                for (let i = 0; i < newBrandsCount && !state.targetReached; i++) {
+                    const newBrand = generateMockBrand(target);
+                    state.allBrands.push(newBrand);
+                    state.currentRunBrandCount++;
+                    state.stats.brandsBySource[target] = (state.stats.brandsBySource[target] || 0) + 1;
+                    
+                    // 检查是否达到目标
+                    if (state.allBrands.length >= state.targetBrandCount) {
+                        state.targetReached = true;
+                        break;
+                    }
+                }
+                
+                // 模拟错误
+                if (Math.random() < 0.15) {
+                    const errorMsg = `Error scraping ${target}. Retrying...`;
+                    log(errorMsg, 'error');
+                    addAlert(`Failed to fetch from ${target}. The system will continue with the next source.`, 'error');
+                }
+                
+                updateUI();
+                targetIndex++;
+                checkIfTargetReached();
+            }, 2000); 
+            
+            state.scrapeInterval = scrapeInterval;
+        }
+
+        // --- 检查是否达到目标数 ---
+        function checkIfTargetReached() {
+            if (state.allBrands.length >= state.targetBrandCount && state.isScraping) {
+                log(`reached target: ${state.targetBrandCount} brands`, 'success');
+                addAlert(`successfully achieved the goal, scrapped brands ${state.targetBrandCount}`, 'success');
+                stopScraping(true);
+            }
+        }
+
+        // --- 更新计划状态 ---
+        function updateScheduleStatus() {
+            if (!state.isScheduled) {
+                scheduleStatus.innerHTML = '<span class="text-gray-500">No Schedul</span>';
+                return;
+            }
+            
+            let statusText;
+            if (state.scheduleFrequency === 'manual') {
+                statusText = `<span class="text-blue-600">Brands Target: ${state.targetBrandCount} - manually</span>`;
+            } else {
+                const nextRunTime = new Date(Date.now() + getNextIntervalMs());
+                const formattedTime = nextRunTime.toLocaleString();
+                statusText = `<span class="text-green-600">Schedule: target ${state.targetBrandCount}, ${getFrequencyText(state.scheduleFrequency)}, next execution time: ${formattedTime}</span>`;
+            }
+            
+            scheduleStatus.innerHTML = statusText;
+        }
+
+        // --- 获取下次执行间隔 ---
+        function getNextIntervalMs() {
+            switch(state.scheduleFrequency) {
+                case 'daily':
+                    return 24 * 60 * 60 * 1000; // 24小时
+                case 'weekly':
+                    return 7 * 24 * 60 * 60 * 1000; // 7天
+                case 'monthly':
+                    return 30 * 24 * 60 * 60 * 1000; // 30天
+                default:
+                    return 0;
+            }
+        }
+
+        // --- 停止计划任务 ---
+        function stopScheduledTask() {
+            if (state.scheduledTask) {
+                clearInterval(state.scheduledTask);
+                state.scheduledTask = null;
+                state.isScheduled = false;
+                updateScheduleStatus();
+                log('schedule stopped', 'warning');
+            }
+        }
 
         // --- Core Logic ---
         function startScraping() {
@@ -545,6 +818,7 @@
             log("Dashboard initialized successfully.");
             initCharts();
             updateUI();
+            initScheduleModal(); // initial schedule modal
         }
         
         initializeApp();
