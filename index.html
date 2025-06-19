@@ -222,7 +222,7 @@
                         <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse border-t border-gray-200">
                              <button type="button" id="closeExportModal" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
                                 Close
-                            </button>
+                          </button>
                         </div>
                     </div>
                 </div>
@@ -241,17 +241,6 @@
         const statusIndicator = document.getElementById('statusIndicator');
         const statusIndicatorDot = document.getElementById('statusIndicatorDot');
         const statusIndicatorText = document.getElementById('statusIndicatorText');
-        
-        const kpiTotalBrands = document.getElementById('kpiTotalBrands');
-        const kpiTotalRuns = document.getElementById('kpiTotalRuns');
-        const kpiSuccessRate = document.getElementById('kpiSuccessRate');
-        const elapsedTimeEl = document.getElementById('elapsedTime');
-
-        const brandsTableBody = document.getElementById('brandsTableBody');
-        const searchInput = document.getElementById('searchInput');
-
-        const logsContainer = document.getElementById('logsContainer');
-        const alertsContainer = document.getElementById('alertsContainer');
         
         // --- Chart Contexts and Instances ---
         const runStatusCtx = document.getElementById('runStatusChart').getContext('2d');
@@ -274,6 +263,106 @@
         const closeExportModal = document.getElementById('closeExportModal');
         const exportJsonButton = document.getElementById('exportJsonButton');
         const exportCsvButton = document.getElementById('exportCsvButton');
+        
+        // Storage Status
+        const storageStatus = document.getElementById('storageStatus');
+        const storageStatusText = document.getElementById('storageStatusText');
+        
+        const kpiTotalBrands = document.getElementById('kpiTotalBrands');
+        const kpiTotalRuns = document.getElementById('kpiTotalRuns');
+        const kpiSuccessRate = document.getElementById('kpiSuccessRate');
+        const elapsedTimeEl = document.getElementById('elapsedTime');
+
+        const brandsTableBody = document.getElementById('brandsTableBody');
+        const searchInput = document.getElementById('searchInput');
+
+        const logsContainer = document.getElementById('logsContainer');
+        const alertsContainer = document.getElementById('alertsContainer');
+
+        // --- Local Database (IndexedDB) ---
+        const DB_NAME = 'brandsCrapDB';
+        const DB_VERSION = 1;
+        const BRAND_STORE = 'brands';
+
+        async function initDatabase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onerror = (event) => {
+                    log('Database error: ' + event.target.error, 'error');
+                    updateStorageStatus('error');
+                    reject(event.target.error);
+                };
+                request.onsuccess = (event) => {
+                    const db = event.target.result;
+                    log('Database initialized successfully', 'success');
+                    updateStorageStatus('ready');
+                    resolve(db);
+                };
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(BRAND_STORE)) {
+                        const store = db.createObjectStore(BRAND_STORE, { keyPath: 'name' });
+                        store.createIndex('source', 'source', { unique: false });
+                        store.createIndex('classification', 'classification', { unique: false });
+                        log('Brand store created', 'success');
+                    }
+                };
+            });
+        }
+        
+        async function loadStoredBrands() {
+            try {
+                const db = await initDatabase();
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(BRAND_STORE, 'readonly');
+                    const store = transaction.objectStore(BRAND_STORE);
+                    const request = store.getAll();
+                    request.onsuccess = () => {
+                        const brands = request.result;
+                        log(`Loaded ${brands.length} brands from storage`, 'success');
+                        resolve(brands);
+                    };
+                    request.onerror = () => {
+                        log('Error loading stored brands', 'error');
+                        reject(request.error);
+                    };
+                });
+            } catch (error) {
+                log('Failed to load stored brands: ' + error, 'error');
+                updateStorageStatus('error');
+                return [];
+            }
+        }
+
+        async function saveBrands(brands) {
+            try {
+                const db = await initDatabase();
+                const transaction = db.transaction(BRAND_STORE, 'readwrite');
+                const store = transaction.objectStore(BRAND_STORE);
+
+                for (const brand of brands) {
+                    store.put(brand);
+                }
+
+                return new Promise((resolve, reject) => {
+                    transaction.oncomplete = () => {
+                        log(`Saved ${brands.length} brands to storage`, 'success');
+                        updateStorageStatus('ready');
+                        resolve();
+                    };
+                    transaction.onerror = () => {
+                        log('Error saving brands', 'error');
+                        updateStorageStatus('error');
+                        reject(transaction.error);
+                    };
+                });
+            } catch (error) {
+                log('Failed to save brands: ' + error, 'error');
+                addAlert('Failed to save brands to local storage', 'error');
+                updateStorageStatus('error');
+            }
+        }
+
 
         // --- App State ---
         let state = {
@@ -292,8 +381,9 @@
             scheduleFrequency: 'manual', // 'daily', 'weekly', 'monthly'
             isScheduled: false,
             scrapeInterval: null,
+            dbInitialized: false,
+            lastSyncTime: null
         };
-        const mockTargets = ["TechCrunch", "Forbes", "Wikipedia", "BrandDirectory", "SuperBrands"];
         
         // --- Navigation ---
         navTabs.forEach(tab => {
@@ -422,6 +512,7 @@
             brandsBySourceChart.update('none');
             
             renderTable(state.allBrands, searchInput.value);
+            updateStorageStatus('ready'); // Make sure UI shows up-to-date storage info        
         }
         
         function renderTable(brands, filter) {
@@ -451,6 +542,26 @@
                 `;
                 brandsTableBody.prepend(row); // Prepend to show newest first
             });
+        }
+
+        // --- Storage Status UI (NEW) ---
+        function updateStorageStatus(status) {
+            if (!storageStatusText) return;
+            switch (status) {
+                case 'ready':
+                    storageStatusText.textContent = `Storage: Ready (${state.allBrands.length} brands)`;
+                    storageStatus.classList.remove('bg-red-200');
+                    storageStatus.classList.add('bg-green-200');
+                    break;
+                case 'error':
+                    storageStatusText.textContent = 'Storage: Error';
+                    storageStatus.classList.remove('bg-green-200');
+                    storageStatus.classList.add('bg-red-200');
+                    break;
+                default:
+                    storageStatusText.textContent = 'Storage: Initializing...';
+                    storageStatus.classList.remove('bg-green-200', 'bg-red-200');
+            }
         }
         
         function log(message, type = 'info') {
@@ -668,8 +779,19 @@
         stopButton.addEventListener('click', () => stopScraping(false));
         searchInput.addEventListener('input', () => renderTable(state.allBrands, searchInput.value));
 
-        // --- Initial Load ---
-        function initializeApp() {
+        // --- Initial Load (MODIFIED) ---
+        async function initializeApp() {
+            updateStorageStatus(); // Show initializing state
+            log("Initializing database...");
+            // Load from local storage first
+            try {
+                const storedBrands = await loadStoredBrands();
+                state.allBrands = storedBrands;
+                state.dbInitialized = true;
+                updateStorageStatus('ready');
+            } catch (error) {
+                updateStorageStatus('error');
+            }
             log("Dashboard initialized successfully.");
             initCharts();
             initScheduleModal();
