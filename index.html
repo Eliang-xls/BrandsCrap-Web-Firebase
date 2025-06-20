@@ -68,7 +68,7 @@
                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <div class="md:col-span-2 lg:col-span-4 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                         <h2 class="text-lg font-semibold mb-4 text-gray-700">Task Control</h2>
-                        <p class="text-sm text-gray-500 mb-4">Fetch live brand data using Brandfetch API. <strong>Requires your Brandfetch API key!</strong></p>
+                        <p class="text-sm text-gray-500 mb-4">Manage the data collection process. The simulation will run for a short duration, collecting mock data from various sources.</p>
                         <div class="flex flex-wrap gap-3">
                             <button id="startButton" class="bg-blue-500 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-blue-600 transition duration-300 flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
                                 <span class="mr-2">▶</span> Start Scraping
@@ -79,13 +79,6 @@
                             <button id="scheduleButton" class="bg-gray-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-gray-700 transition duration-300 flex items-center">
                                 <span class="mr-2">◷</span> Schedule
                             </button>
-                        </div>
-                        <div class="mt-4">
-                            <label for="brandfetchApiKey" class="block text-sm font-medium text-gray-700 mb-2">Brandfetch API Key</label>
-                            <input id="brandfetchApiKey" type="password" class="w-full p-2 border border-gray-300 rounded-md" placeholder="Paste your Brandfetch API key here..." autocomplete="off">
-                        </div>
-                        <div class="mt-2 text-xs text-gray-400">
-                            Don’t have an API key? <a href="https://www.brandfetch.com/" target="_blank" class="underline text-blue-600">Get one from Brandfetch</a>
                         </div>
                     </div>
                     <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -100,7 +93,7 @@
                         <h3 class="text-md font-semibold text-gray-500">Success Rate</h3>
                         <p id="kpiSuccessRate" class="text-4xl font-bold text-green-500 mt-2">0%</p>
                     </div>
-                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                     <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                         <h3 class="text-md font-semibold text-gray-500">Elapsed Time</h3>
                         <p id="elapsedTime" class="text-4xl font-bold text-gray-800 mt-2">00:00</p>
                     </div>
@@ -115,7 +108,7 @@
                     <div class="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                         <h2 class="text-lg font-semibold mb-2 text-gray-700">Brands by Source</h2>
                         <p class="text-sm text-gray-500 mb-4">Shows which sources are providing the most data.</p>
-                        <div class="chart-container">
+                         <div class="chart-container">
                             <canvas id="brandsBySourceChart"></canvas>
                         </div>
                     </div>
@@ -209,7 +202,7 @@
                             <button type="button" id="saveScheduleBtn" class="mt-3 w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
                                 Save Plan
                             </button>
-                            <button type="button" id="closeScheduleModal" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                             <button type="button" id="closeScheduleModal" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
                                 Cancel
                             </button>
                         </div>
@@ -249,7 +242,6 @@
         const startButton = document.getElementById('startButton');
         const stopButton = document.getElementById('stopButton');
         const scheduleButton = document.getElementById('scheduleButton');
-        const apiKeyInput = document.getElementById('brandfetchApiKey');
         
         const statusIndicator = document.getElementById('statusIndicator');
         const statusIndicatorDot = document.getElementById('statusIndicatorDot');
@@ -296,386 +288,6 @@
         const importDataButton = document.getElementById('importDataButton');
         const importFileInput = document.getElementById('importFileInput');
 
-
-
-        // --- Local Database (IndexedDB) ---
-        const DB_NAME = 'brandsCrapDB';
-        const DB_VERSION = 1;
-        const BRAND_STORE = 'brands';
-
-        async function initDatabase() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, DB_VERSION);
-                request.onerror = (event) => {
-                    log('Database error: ' + event.target.error, 'error');
-                    updateStorageStatus('error');
-                    reject(event.target.error);
-                };
-                request.onsuccess = (event) => {
-                    const db = event.target.result;
-                    log('Database initialized successfully', 'success');
-                    updateStorageStatus('ready');
-                    resolve(db);
-                };
-                request.onupgradeneeded = (event) => {
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains(BRAND_STORE)) {
-                        const store = db.createObjectStore(BRAND_STORE, { keyPath: 'name' });
-                        store.createIndex('source', 'source', { unique: false });
-                        store.createIndex('classification', 'classification', { unique: false });
-                        log('Brand store created', 'success');
-                    }
-                };
-            });
-        }
-        
-        async function loadStoredBrands() {
-            try {
-                const db = await initDatabase();
-                return new Promise((resolve, reject) => {
-                    const transaction = db.transaction(BRAND_STORE, 'readonly');
-                    const store = transaction.objectStore(BRAND_STORE);
-                    const request = store.getAll();
-                    request.onsuccess = () => {
-                        const brands = request.result;
-                        log(`Loaded ${brands.length} brands from storage`, 'success');
-                        resolve(brands);
-                    };
-                    request.onerror = () => {
-                        log('Error loading stored brands', 'error');
-                        reject(request.error);
-                    };
-                });
-            } catch (error) {
-                log('Failed to load stored brands: ' + error, 'error');
-                updateStorageStatus('error');
-                return [];
-            }
-        }
-
-        async function saveBrands(brands) {
-            try {
-                const db = await initDatabase();
-                const transaction = db.transaction(BRAND_STORE, 'readwrite');
-                const store = transaction.objectStore(BRAND_STORE);
-
-                for (const brand of brands) {
-                    store.put(brand);
-                }
-
-                return new Promise((resolve, reject) => {
-                    transaction.oncomplete = () => {
-                        log(`Saved ${brands.length} brands to storage`, 'success');
-                        updateStorageStatus('ready');
-                        resolve();
-                    };
-                    transaction.onerror = () => {
-                        log('Error saving brands', 'error');
-                        updateStorageStatus('error');
-                        reject(transaction.error);
-                    };
-                });
-            } catch (error) {
-                log('Failed to save brands: ' + error, 'error');
-                addAlert('Failed to save brands to local storage', 'error');
-                updateStorageStatus('error');
-            }
-        }
-        async function clearAllBrands() {
-            try {
-                const db = await initDatabase();
-                return new Promise((resolve, reject) => {
-                    const transaction = db.transaction(BRAND_STORE, 'readwrite');
-                    const store = transaction.objectStore(BRAND_STORE);
-                    const req = store.clear();
-                    req.onsuccess = () => resolve();
-                    req.onerror = () => reject(req.error);
-                });
-            } catch (e) {
-                log('Failed to clear brands: ' + e, 'error');
-            }
-        }
-
-        // --- App State ---
-        let state = {
-            isScraping: false,
-            timerInterval: null,
-            elapsedSeconds: 0,
-            allBrands: [],
-            stats: {
-                totalRuns: 0,
-                successfulRuns: 0,
-                failedRuns: 0,
-                brandsBySource: {}
-            },
-            currentRunBrandCount: 0,
-            targetBrandCount: 0, // 0 means no target
-            scheduleFrequency: 'manual', 'daily', 'weekly', 'monthly'
-            isScheduled: false,
-            scrapeInterval: null,
-            dbInitialized: false,
-            lastSyncTime: null
-        };
-
-        // --- Brandfetch Domains (You can expand this list) ---
-        const brandDomains = [
-            "apple.com","microsoft.com","nike.com","coca-cola.com","starbucks.com",
-            "tesla.com","adidas.com","samsung.com","sony.com","bmw.com"
-        ];
-
-        // --- Brandfetch API Logic ---
-        async function fetchBrandFromAPI(domain, apiKey) {
-            const apiUrl = `https://api.brandfetch.io/v2/brands/${domain}`;
-            try {
-                const response = await fetch(apiUrl, {
-                    headers: { "Authorization": `Bearer ${apiKey}` }
-                });
-                if (!response.ok) throw new Error(`API error: ${response.status}`);
-                const data = await response.json();
-                return {
-                    name: data.name || domain,
-                    logo: (data.logos && data.logos[0] && data.logos[0].src) || "",
-                    founder: "", // Brandfetch may not provide this
-                    classification: data.industry || "",
-                    source: "Brandfetch"
-                };
-            } catch (err) {
-                log(`Failed to fetch brand for ${domain}: ${err}`, 'error');
-                return null;
-            }
-        }
-
-        // --- Navigation ---
-        navTabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                navTabs.forEach(t => t.classList.replace('tab-active', 'tab-inactive'));
-                tab.classList.replace('tab-inactive', 'tab-active');
-
-                tabContents.forEach(content => {
-                    content.classList.add('hidden');
-                    if (content.id === tab.dataset.tab) {
-                        content.classList.remove('hidden');
-                    }
-                });
-            });
-        });
-
-        // --- Modal Initializers ---
-        function initScheduleModal() {
-            scheduleButton.addEventListener('click', () => scheduleModal.classList.remove('hidden'));
-            closeScheduleModal.addEventListener('click', () => scheduleModal.classList.add('hidden'));
-            scheduleOverlay.addEventListener('click', () => scheduleModal.classList.add('hidden'));
-            saveScheduleBtn.addEventListener('click', saveSchedule);
-        }
-
-        function initExportModal() {
-            exportDataButton.addEventListener('click', () => exportModal.classList.remove('hidden'));
-            closeExportModal.addEventListener('click', () => exportModal.classList.add('hidden'));
-            exportOverlay.addEventListener('click', () => exportModal.classList.add('hidden'));
-            exportJsonButton.addEventListener('click', exportAsJSON);
-            exportCsvButton.addEventListener('click', exportAsCSV);
-        }
-
-        // --- Chart Initialization ---
-        function initCharts() {
-            Chart.defaults.font.family = 'Inter';
-            Chart.defaults.color = '#6b7280';
-
-            const tooltipPlugin = {
-                titleFont: { weight: 'bold' },
-                bodyFont: { size: 14 },
-                padding: 12,
-                boxPadding: 4,
-                cornerRadius: 8,
-            };
-
-            const legendPlugin = {
-                position: 'bottom',
-                labels: { padding: 20, font: { size: 14 } }
-            };
-            
-            runStatusChart = new Chart(runStatusCtx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Successful', 'Failed'],
-                    datasets: [{
-                        data: [0, 0],
-                        backgroundColor: ['#48BB78', '#F56565'],
-                        borderColor: '#F8F7F4',
-                        borderWidth: 4,
-                        hoverOffset: 8,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: '70%',
-                    plugins: { legend: legendPlugin, tooltip: tooltipPlugin }
-                }
-            });
-
-            brandsBySourceChart = new Chart(brandsBySourceCtx, {
-                type: 'bar',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Brands Collected',
-                        data: [],
-                        backgroundColor: '#63B3ED',
-                        borderRadius: 6,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: { beginAtZero: true, grid: { drawBorder: false }, ticks: { precision: 0 } },
-                        x: { grid: { display: false } }
-                    },
-                    plugins: { legend: { display: false }, tooltip: tooltipPlugin }
-                }
-            });
-        }
-
-        // --- UI Update Functions ---
-        function updateUI() {
-            startButton.disabled = state.isScraping;
-            stopButton.disabled = !state.isScraping;
-
-            if (state.isScraping) {
-                statusIndicator.className = 'flex items-center mt-4 sm:mt-0 py-2 px-4 rounded-full bg-blue-100 text-gray-700 transition-colors duration-300';
-                statusIndicatorDot.className = 'w-3 h-3 rounded-full bg-blue-500 mr-3 animate-pulse';
-                statusIndicatorText.textContent = 'Scraping...';
-            } else if (state.stats.totalRuns > 0) {
-                statusIndicator.className = 'flex items-center mt-4 sm:mt-0 py-2 px-4 rounded-full bg-gray-200 text-gray-700 transition-colors duration-300';
-                statusIndicatorDot.className = 'w-3 h-3 rounded-full bg-red-500 mr-3';
-                statusIndicatorText.textContent = 'Stopped';
-            } else {
-                statusIndicator.className = 'flex items-center mt-4 sm:mt-0 py-2 px-4 rounded-full bg-gray-200 text-gray-700 transition-colors duration-300';
-                statusIndicatorDot.className = 'w-3 h-3 rounded-full bg-gray-400 mr-3';
-                statusIndicatorText.textContent = 'Idle';
-            }
-            
-            kpiTotalBrands.textContent = state.allBrands.length;
-            kpiTotalRuns.textContent = state.stats.totalRuns;
-            const successRate = state.stats.totalRuns > 0 ? Math.round((state.stats.successfulRuns / state.stats.totalRuns) * 100) : 0;
-            kpiSuccessRate.textContent = `${successRate}%`;
-            kpiSuccessRate.className = `text-4xl font-bold mt-2 ${successRate >= 70 ? 'text-green-500' : 'text-amber-500'}`;
-
-            runStatusChart.data.datasets[0].data = [state.stats.successfulRuns, state.stats.failedRuns];
-            runStatusChart.update('none');
-
-            const sourceLabels = Object.keys(state.stats.brandsBySource);
-            const sourceData = Object.values(state.stats.brandsBySource);
-            brandsBySourceChart.data.labels = sourceLabels;
-            brandsBySourceChart.data.datasets[0].data = sourceData;
-            brandsBySourceChart.update('none');
-            
-            renderTable(state.allBrands, searchInput.value);
-            updateStorageStatus('ready'); // Make sure UI shows up-to-date storage info        
-        }
-        
-        function renderTable(brands, filter) {
-            const normalizedFilter = filter.toLowerCase();
-            const filteredBrands = brands.filter(b => 
-                !filter || 
-                b.name.toLowerCase().includes(normalizedFilter) ||
-                b.founder.toLowerCase().includes(normalizedFilter) ||
-                b.classification.toLowerCase().includes(normalizedFilter)
-            );
-
-            if (filteredBrands.length === 0) {
-                brandsTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-8 text-gray-500">${brands.length > 0 ? 'No brands match your search.' : 'No data collected yet. Start a scraping task to begin.'}</td></tr>`;
-                return;
-            }
-            
-            brandsTableBody.innerHTML = ''; 
-            filteredBrands.forEach(brand => {
-                 const row = document.createElement('tr');
-                 row.className = "hover:bg-gray-50 transition-colors duration-150";
-                 row.innerHTML = `
-                    <td class="py-3 px-4"><img src="${brand.logo}" alt="${brand.name} logo" class="rounded-full h-10 w-10 object-cover bg-gray-200"></td>
-                    <td class="py-3 px-4 font-medium text-gray-800">${brand.name}</td>
-                    <td class="py-3 px-4">${brand.founder}</td>
-                    <td class="py-3 px-4"><span class="px-2 py-1 font-semibold leading-tight text-blue-700 bg-blue-100 rounded-full text-xs">${brand.classification}</span></td>
-                    <td class="py-3 px-4 text-sm text-gray-600">${brand.source}</td>
-                `;
-                brandsTableBody.prepend(row); // Prepend to show newest first
-            });
-        }
-
-        // --- Storage Status UI (NEW) ---
-        function updateStorageStatus(status) {
-            if (!storageStatusText) return;
-            switch (status) {
-                case 'ready':
-                    storageStatusText.textContent = `Storage: Ready (${state.allBrands.length} brands)`;
-                    storageStatus.classList.remove('bg-red-200');
-                    storageStatus.classList.add('bg-green-200');
-                    break;
-                case 'error':
-                    storageStatusText.textContent = 'Storage: Error';
-                    storageStatus.classList.remove('bg-green-200');
-                    storageStatus.classList.add('bg-red-200');
-                    break;
-                default:
-                    storageStatusText.textContent = 'Storage: Initializing...';
-                    storageStatus.classList.remove('bg-green-200', 'bg-red-200');
-            }
-        }
-        
-        function log(message, type = 'info') {
-            const p = document.createElement('p');
-            const typeClasses = { error: 'text-red-400', warning: 'text-yellow-400', success: 'text-green-400', info: 'text-gray-400' };
-            p.className = typeClasses[type] || 'text-gray-400';
-            p.innerHTML = `<span class="text-gray-500 mr-2">${new Date().toLocaleTimeString()} &gt;</span> ${message}`;
-            logsContainer.prepend(p);
-        }
-
-        function addAlert(message, type = 'warning') {
-            if(alertsContainer.querySelector('.text-gray-500')) alertsContainer.innerHTML = '';
-            const alertDiv = document.createElement('div');
-            const C = {
-                error: { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300' },
-                warning: { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300' },
-                success: { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300'}
-            }[type] || C.warning;
-            alertDiv.className = `p-3 rounded-lg border ${C.bg} ${C.text} ${C.border}`;
-            alertDiv.textContent = message;
-            alertsContainer.prepend(alertDiv);
-        }
-
-        // --- Schedule Logic ---
-        function saveSchedule() {
-            const target = parseInt(targetCountInput.value);
-            if (isNaN(target) || target < 1) {
-                addAlert('Target number must be a positive number.', 'error');
-                return;
-            }
-            
-            state.scheduleFrequency = scheduleFrequency.value;
-            state.targetBrandCount = target;
-            state.isScheduled = true;
-            
-            updateScheduleStatus();
-            scheduleModal.classList.add('hidden');
-            log(`Scheduling saved: Target set to ${target} brands.`, 'success');
-            addAlert(`Plan saved! The next manual run will aim for ${target} brands.`, 'success');
-        }
-
-        function updateScheduleStatus() {
-            if (!state.isScheduled || state.targetBrandCount <= 0) {
-                scheduleStatus.innerHTML = '<span class="text-gray-500">No Schedule Set</span>';
-                return;
-            }
-            
-            const frequencyMap = { 'manual': 'Manual Start', 'daily': 'Daily', 'weekly': 'Weekly', 'monthly': 'Monthly' };
-            const freqText = frequencyMap[state.scheduleFrequency];
-            let statusText = `<span class="text-blue-600 font-semibold">Target:</span> ${state.targetBrandCount} Brands | <span class="font-semibold">Mode:</span> ${freqText}`;
-            scheduleStatus.innerHTML = statusText;
-        }
-
-        // --- Import Data Logic ---
         importDataButton.addEventListener('click', () => {
             importFileInput.value = ''; // Clear previous selection
             importFileInput.click();
@@ -817,6 +429,433 @@
             }
         }
 
+
+        // --- Local Database (IndexedDB) ---
+        const DB_NAME = 'brandsCrapDB';
+        const DB_VERSION = 1;
+        const BRAND_STORE = 'brands';
+
+        async function initDatabase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onerror = (event) => {
+                    log('Database error: ' + event.target.error, 'error');
+                    updateStorageStatus('error');
+                    reject(event.target.error);
+                };
+                request.onsuccess = (event) => {
+                    const db = event.target.result;
+                    log('Database initialized successfully', 'success');
+                    updateStorageStatus('ready');
+                    resolve(db);
+                };
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(BRAND_STORE)) {
+                        const store = db.createObjectStore(BRAND_STORE, { keyPath: 'name' });
+                        store.createIndex('source', 'source', { unique: false });
+                        store.createIndex('classification', 'classification', { unique: false });
+                        log('Brand store created', 'success');
+                    }
+                };
+            });
+        }
+        
+        async function loadStoredBrands() {
+            try {
+                const db = await initDatabase();
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(BRAND_STORE, 'readonly');
+                    const store = transaction.objectStore(BRAND_STORE);
+                    const request = store.getAll();
+                    request.onsuccess = () => {
+                        const brands = request.result;
+                        log(`Loaded ${brands.length} brands from storage`, 'success');
+                        resolve(brands);
+                    };
+                    request.onerror = () => {
+                        log('Error loading stored brands', 'error');
+                        reject(request.error);
+                    };
+                });
+            } catch (error) {
+                log('Failed to load stored brands: ' + error, 'error');
+                updateStorageStatus('error');
+                return [];
+            }
+        }
+
+        async function saveBrands(brands) {
+            try {
+                const db = await initDatabase();
+                const transaction = db.transaction(BRAND_STORE, 'readwrite');
+                const store = transaction.objectStore(BRAND_STORE);
+
+                for (const brand of brands) {
+                    store.put(brand);
+                }
+
+                return new Promise((resolve, reject) => {
+                    transaction.oncomplete = () => {
+                        log(`Saved ${brands.length} brands to storage`, 'success');
+                        updateStorageStatus('ready');
+                        resolve();
+                    };
+                    transaction.onerror = () => {
+                        log('Error saving brands', 'error');
+                        updateStorageStatus('error');
+                        reject(transaction.error);
+                    };
+                });
+            } catch (error) {
+                log('Failed to save brands: ' + error, 'error');
+                addAlert('Failed to save brands to local storage', 'error');
+                updateStorageStatus('error');
+            }
+        }
+
+
+        // --- App State ---
+        let state = {
+            isScraping: false,
+            timerInterval: null,
+            elapsedSeconds: 0,
+            allBrands: [],
+            stats: {
+                totalRuns: 0,
+                successfulRuns: 0,
+                failedRuns: 0,
+                brandsBySource: {}
+            },
+            currentRunBrandCount: 0,
+            targetBrandCount: 0, // 0 means no target
+            scheduleFrequency: 'manual', // 'daily', 'weekly', 'monthly'
+            isScheduled: false,
+            scrapeInterval: null,
+            dbInitialized: false,
+            lastSyncTime: null
+        };
+        
+        const mockTargets = ["TechCrunch", "Forbes", "Wikipedia", "BrandDirectory", "SuperBrands"];
+
+        // --- Navigation ---
+        navTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                navTabs.forEach(t => t.classList.replace('tab-active', 'tab-inactive'));
+                tab.classList.replace('tab-inactive', 'tab-active');
+
+                tabContents.forEach(content => {
+                    content.classList.add('hidden');
+                    if (content.id === tab.dataset.tab) {
+                        content.classList.remove('hidden');
+                    }
+                });
+            });
+        });
+
+        // --- Modal Initializers ---
+        function initScheduleModal() {
+            scheduleButton.addEventListener('click', () => scheduleModal.classList.remove('hidden'));
+            closeScheduleModal.addEventListener('click', () => scheduleModal.classList.add('hidden'));
+            scheduleOverlay.addEventListener('click', () => scheduleModal.classList.add('hidden'));
+            saveScheduleBtn.addEventListener('click', saveSchedule);
+        }
+
+        function initExportModal() {
+            exportDataButton.addEventListener('click', () => exportModal.classList.remove('hidden'));
+            closeExportModal.addEventListener('click', () => exportModal.classList.add('hidden'));
+            exportOverlay.addEventListener('click', () => exportModal.classList.add('hidden'));
+            exportJsonButton.addEventListener('click', exportAsJSON);
+            exportCsvButton.addEventListener('click', exportAsCSV);
+        }
+
+        // --- Chart Initialization ---
+        function initCharts() {
+            Chart.defaults.font.family = 'Inter';
+            Chart.defaults.color = '#6b7280';
+
+            const tooltipPlugin = {
+                titleFont: { weight: 'bold' },
+                bodyFont: { size: 14 },
+                padding: 12,
+                boxPadding: 4,
+                cornerRadius: 8,
+            };
+
+            const legendPlugin = {
+                position: 'bottom',
+                labels: { padding: 20, font: { size: 14 } }
+            };
+            
+            runStatusChart = new Chart(runStatusCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Successful', 'Failed'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: ['#48BB78', '#F56565'],
+                        borderColor: '#F8F7F4',
+                        borderWidth: 4,
+                        hoverOffset: 8,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '70%',
+                    plugins: { legend: legendPlugin, tooltip: tooltipPlugin }
+                }
+            });
+
+            brandsBySourceChart = new Chart(brandsBySourceCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Brands Collected',
+                        data: [],
+                        backgroundColor: '#63B3ED',
+                        borderRadius: 6,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, grid: { drawBorder: false }, ticks: { precision: 0 } },
+                        x: { grid: { display: false } }
+                    },
+                    plugins: { legend: { display: false }, tooltip: tooltipPlugin }
+                }
+            });
+        }
+
+        // --- UI Update Functions ---
+        function updateUI() {
+            startButton.disabled = state.isScraping;
+            stopButton.disabled = !state.isScraping;
+
+            if (state.isScraping) {
+                statusIndicator.className = 'flex items-center mt-4 sm:mt-0 py-2 px-4 rounded-full bg-blue-100 text-gray-700 transition-colors duration-300';
+                statusIndicatorDot.className = 'w-3 h-3 rounded-full bg-blue-500 mr-3 animate-pulse';
+                statusIndicatorText.textContent = 'Scraping...';
+            } else if (state.stats.totalRuns > 0) {
+                 statusIndicator.className = 'flex items-center mt-4 sm:mt-0 py-2 px-4 rounded-full bg-gray-200 text-gray-700 transition-colors duration-300';
+                 statusIndicatorDot.className = 'w-3 h-3 rounded-full bg-red-500 mr-3';
+                 statusIndicatorText.textContent = 'Stopped';
+            } else {
+                 statusIndicator.className = 'flex items-center mt-4 sm:mt-0 py-2 px-4 rounded-full bg-gray-200 text-gray-700 transition-colors duration-300';
+                 statusIndicatorDot.className = 'w-3 h-3 rounded-full bg-gray-400 mr-3';
+                 statusIndicatorText.textContent = 'Idle';
+            }
+            
+            kpiTotalBrands.textContent = state.allBrands.length;
+            kpiTotalRuns.textContent = state.stats.totalRuns;
+            const successRate = state.stats.totalRuns > 0 ? Math.round((state.stats.successfulRuns / state.stats.totalRuns) * 100) : 0;
+            kpiSuccessRate.textContent = `${successRate}%`;
+            kpiSuccessRate.className = `text-4xl font-bold mt-2 ${successRate >= 70 ? 'text-green-500' : 'text-amber-500'}`;
+
+            runStatusChart.data.datasets[0].data = [state.stats.successfulRuns, state.stats.failedRuns];
+            runStatusChart.update('none');
+
+            const sourceLabels = Object.keys(state.stats.brandsBySource);
+            const sourceData = Object.values(state.stats.brandsBySource);
+            brandsBySourceChart.data.labels = sourceLabels;
+            brandsBySourceChart.data.datasets[0].data = sourceData;
+            brandsBySourceChart.update('none');
+            
+            renderTable(state.allBrands, searchInput.value);
+            updateStorageStatus('ready'); // Make sure UI shows up-to-date storage info        
+        }
+        
+        function renderTable(brands, filter) {
+            const normalizedFilter = filter.toLowerCase();
+            const filteredBrands = brands.filter(b => 
+                !filter || 
+                b.name.toLowerCase().includes(normalizedFilter) ||
+                b.founder.toLowerCase().includes(normalizedFilter) ||
+                b.classification.toLowerCase().includes(normalizedFilter)
+            );
+
+            if (filteredBrands.length === 0) {
+                brandsTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-8 text-gray-500">${brands.length > 0 ? 'No brands match your search.' : 'No data collected yet. Start a scraping task to begin.'}</td></tr>`;
+                return;
+            }
+            
+            brandsTableBody.innerHTML = ''; 
+            filteredBrands.forEach(brand => {
+                 const row = document.createElement('tr');
+                 row.className = "hover:bg-gray-50 transition-colors duration-150";
+                 row.innerHTML = `
+                    <td class="py-3 px-4"><img src="${brand.logo}" alt="${brand.name} logo" class="rounded-full h-10 w-10 object-cover bg-gray-200"></td>
+                    <td class="py-3 px-4 font-medium text-gray-800">${brand.name}</td>
+                    <td class="py-3 px-4">${brand.founder}</td>
+                    <td class="py-3 px-4"><span class="px-2 py-1 font-semibold leading-tight text-blue-700 bg-blue-100 rounded-full text-xs">${brand.classification}</span></td>
+                    <td class="py-3 px-4 text-sm text-gray-600">${brand.source}</td>
+                `;
+                brandsTableBody.prepend(row); // Prepend to show newest first
+            });
+        }
+
+        // --- Storage Status UI (NEW) ---
+        function updateStorageStatus(status) {
+            if (!storageStatusText) return;
+            switch (status) {
+                case 'ready':
+                    storageStatusText.textContent = `Storage: Ready (${state.allBrands.length} brands)`;
+                    storageStatus.classList.remove('bg-red-200');
+                    storageStatus.classList.add('bg-green-200');
+                    break;
+                case 'error':
+                    storageStatusText.textContent = 'Storage: Error';
+                    storageStatus.classList.remove('bg-green-200');
+                    storageStatus.classList.add('bg-red-200');
+                    break;
+                default:
+                    storageStatusText.textContent = 'Storage: Initializing...';
+                    storageStatus.classList.remove('bg-green-200', 'bg-red-200');
+            }
+        }
+        
+        function log(message, type = 'info') {
+            const p = document.createElement('p');
+            const typeClasses = { error: 'text-red-400', warning: 'text-yellow-400', success: 'text-green-400', info: 'text-gray-400' };
+            p.className = typeClasses[type] || 'text-gray-400';
+            p.innerHTML = `<span class="text-gray-500 mr-2">${new Date().toLocaleTimeString()} &gt;</span> ${message}`;
+            logsContainer.prepend(p);
+        }
+
+        function addAlert(message, type = 'warning') {
+            if(alertsContainer.querySelector('.text-gray-500')) alertsContainer.innerHTML = '';
+            const alertDiv = document.createElement('div');
+            const C = {
+                error: { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300' },
+                warning: { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300' },
+                success: { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300'}
+            }[type] || C.warning;
+            alertDiv.className = `p-3 rounded-lg border ${C.bg} ${C.text} ${C.border}`;
+            alertDiv.textContent = message;
+            alertsContainer.prepend(alertDiv);
+        }
+
+        // --- Schedule Logic ---
+        function saveSchedule() {
+            const target = parseInt(targetCountInput.value);
+            if (isNaN(target) || target < 1) {
+                addAlert('Target number must be a positive number.', 'error');
+                return;
+            }
+            
+            state.scheduleFrequency = scheduleFrequency.value;
+            state.targetBrandCount = target;
+            state.isScheduled = true;
+            
+            updateScheduleStatus();
+            scheduleModal.classList.add('hidden');
+            log(`Scheduling saved: Target set to ${target} brands.`, 'success');
+            addAlert(`Plan saved! The next manual run will aim for ${target} brands.`, 'success');
+        }
+
+        function updateScheduleStatus() {
+            if (!state.isScheduled || state.targetBrandCount <= 0) {
+                scheduleStatus.innerHTML = '<span class="text-gray-500">No Schedule Set</span>';
+                return;
+            }
+            
+            const frequencyMap = { 'manual': 'Manual Start', 'daily': 'Daily', 'weekly': 'Weekly', 'monthly': 'Monthly' };
+            const freqText = frequencyMap[state.scheduleFrequency];
+            let statusText = `<span class="text-blue-600 font-semibold">Target:</span> ${state.targetBrandCount} Brands | <span class="font-semibold">Mode:</span> ${freqText}`;
+            scheduleStatus.innerHTML = statusText;
+        }
+
+        // --- Core Scraping Logic ---
+         async function startScraping() {
+            if (state.isScraping) return;
+
+            const useTarget = state.isScheduled && state.targetBrandCount > 0;
+            const targetTotal = state.allBrands.length + state.targetBrandCount;
+
+            state.isScraping = true;
+            state.stats.totalRuns++;
+            state.currentRunBrandCount = 0;
+            
+            if (useTarget) {
+                 log(`Scraping process started with target: Collect ${state.targetBrandCount} new brands (total ${targetTotal}).`, 'success');
+            } else {
+                 log("Scraping process started.", 'success');
+            }
+           
+            startTimer();
+            updateUI();
+
+            let targetIndex = 0;
+            state.scrapeInterval = setInterval(async () => {
+                if (!state.isScraping) return;
+
+                // Stop condition for non-target runs
+                if (!useTarget && targetIndex >= mockTargets.length) {
+                    stopScraping(true); // Successfully completed a full run
+                    return;
+                }
+                
+                // If we run out of targets, loop them for the simulation
+                if (targetIndex >= mockTargets.length) {
+                    targetIndex = 0; 
+                }
+                
+                const target = mockTargets[targetIndex];
+                log(`Scraping target: <strong>${target}</strong>`);
+
+                const newBrandsCount = Math.floor(Math.random() * 5) + 1;
+                let newBrandsBatch = [];
+                for (let i = 0; i < newBrandsCount; i++) {
+                    const newBrand = generateMockBrand(target);
+                    state.allBrands.push(newBrand);
+                    newBrandsBatch.push(newBrand);
+                    state.currentRunBrandCount++;
+                    state.stats.brandsBySource[target] = (state.stats.brandsBySource[target] || 0) + 1;
+
+                    // Stop condition for target-based runs
+                    if (useTarget && state.allBrands.length >= targetTotal) {
+                        log(`Target of ${targetTotal} total brands reached.`, 'success');
+                        addAlert(`Successfully reached target, collected ${state.currentRunBrandCount} new brands.`, 'success');
+                        await saveBrands(newBrandsBatch);
+                        stopScraping(true);
+                        return; // Exit the loop and interval
+                    }
+                }
+                // Save after each batch
+                await saveBrands(newBrandsBatch);
+                
+                if (Math.random() < 0.1) {
+                    const errorMsg = `Error scraping ${target}.`;
+                    log(errorMsg, 'error');
+                    addAlert(`Failed to fetch from ${target}. The system will continue with other sources.`, 'error');
+                }
+                
+                updateUI();
+                targetIndex++;
+            }, 1500);
+        }
+
+
+        function stopScraping(isSuccess = false) {
+            if (!state.isScraping) return;
+            clearInterval(state.scrapeInterval);
+            state.isScraping = false;
+            stopTimer();
+
+            if (isSuccess) {
+                state.stats.successfulRuns++;
+                log(`Scraping process completed. Found <strong>${state.currentRunBrandCount}</strong> new brands this run.`, 'success');
+            } else {
+                state.stats.failedRuns++;
+                log("Scraping process stopped by user.", 'warning');
+                addAlert('Task stopped manually by user.', 'warning');
+            }
+            updateUI();
+        }
+
         // --- Data Export Logic ---
         function downloadBlob(blob, filename) {
             const url = URL.createObjectURL(blob);
@@ -875,99 +914,23 @@
              elapsedTimeEl.textContent = `${m}:${s}`;
         }
 
-        // --- SCRAPING LOGIC: Brandfetch API version ---
-         async function startScraping() {
-            if (state.isScraping) return;
-            const apiKey = apiKeyInput.value.trim();
-            if (!apiKey) {
-                addAlert('Please enter your Brandfetch API key!', 'error');
-                log('Missing Brandfetch API key.', 'error');
-                return;
-            }
-            const useTarget = state.isScheduled && state.targetBrandCount > 0;
-            const targetTotal = state.allBrands.length + (useTarget ? state.targetBrandCount : brandDomains.length);
-
-            state.isScraping = true;
-            state.stats.totalRuns++;
-            state.currentRunBrandCount = 0;
+        // --- Mock Data Generator ---
+        function generateMockBrand(source) {
+            const names = ["Apex", "Vortex", "Zenith", "Nova", "Pulse", "Fusion", "Equinox", "Orion", "Celeste"];
+            const domains = ["Industries", "Dynamics", "Solutions", "Global", "Enterprises", "Labs", "Works"];
+            const founders = ["J. Doe", "A. Smith", "K. Ray", "S. Wilson", "C. Lee", "M. Chen", "R. Singh"];
+            const classifications = ["Technology", "Finance", "Healthcare", "Retail", "Automotive", "E-commerce", "SaaS"];
             
-            if (useTarget) {
-                 log(`Scraping process started with target: Collect ${state.targetBrandCount} new brands (total ${targetTotal}).`, 'success');
-            } else {
-                 log("Scraping process started.", 'success');
-            }
-           
-            startTimer();
-            updateUI();
-
-            let domainIndex = 0;
-            state.scrapeInterval = setInterval(async () => {
-                if (!state.isScraping) return;
-
-                // Stop condition for non-target runs
-                if (!useTarget && domainIndex >= brandDomains.length) {
-                    stopScraping(true); // Successfully completed a full run
-                    return;
-                }
-                const domain = brandDomains[domainIndex];
-                
-                log(`Fetching brand info for: <strong>${domain}</strong>`);
-
-                const brand = await fetchBrandFromAPI(domain, apiKey);
-                if (brand) {
-                    // Prevent duplicates by name
-                    if (!state.allBrands.some(b => b.name === brand.name)) {
-                        state.allBrands.push(brand);
-                        await saveBrands([brand]);
-                    	state.currentRunBrandCount++;
-                        state.stats.brandsBySource[brand.source] = (state.stats.brandsBySource[brand.source] || 0) + 1;
-                    }
-                } else {
-                    state.stats.failedRuns++;
-                }
-                updateUI();
-                domainIndex++;
-                    // Stop condition for target-based runs
-                    if (useTarget && state.allBrands.length >= targetTotal) {
-                        log(`Target of ${targetTotal} total brands reached.`, 'success');
-                        addAlert(`Successfully reached target, collected ${state.currentRunBrandCount} new brands.`, 'success');
-                        await saveBrands(newBrandsBatch);
-                        stopScraping(true);
-                        return; // Exit the loop and interval
-                    }
-                }
-                // Save after each batch
-                await saveBrands(newBrandsBatch);
-                
-                if (Math.random() < 0.1) {
-                    const errorMsg = `Error scraping ${target}.`;
-                    log(errorMsg, 'error');
-                    addAlert(`Failed to fetch from ${target}. The system will continue with other sources.`, 'error');
-                }
-                
-                updateUI();
-                targetIndex++;
-            }, 1500);
-        }
-
-
-        function stopScraping(isSuccess = false) {
-            if (!state.isScraping) return;
-            clearInterval(state.scrapeInterval);
-            state.isScraping = false;
-            stopTimer();
-
-            if (isSuccess) {
-                state.stats.successfulRuns++;
-                log(`Scraping process completed. Found <strong>${state.currentRunBrandCount}</strong> new brands this run.`, 'success');
-            } else {
-                state.stats.failedRuns++;
-                log("Scraping process stopped by user.", 'warning');
-                addAlert('Task stopped manually by user.', 'warning');
-            }
-            updateUI();
-        }
-
+            const name = `${names[Math.floor(Math.random() * names.length)]} ${domains[Math.floor(Math.random() * domains.length)]}`;
+            const logoText = name.split(" ").map(n => n[0]).join('');
+            
+            return {
+                name: name,
+                logo: `https://placehold.co/80x80/EBF8FF/2B6CB0?text=${logoText}&font=inter`,
+                founder: founders[Math.floor(Math.random() * founders.length)],
+                classification: classifications[Math.floor(Math.random() * classifications.length)],
+                source: source
+            };
         }
         
         // --- Event Listeners ---
@@ -975,7 +938,7 @@
         stopButton.addEventListener('click', () => stopScraping(false));
         searchInput.addEventListener('input', () => renderTable(state.allBrands, searchInput.value));
 
-        // --- Initial Load ---
+        // --- Initial Load (MODIFIED) ---
         async function initializeApp() {
             updateStorageStatus(); // Show initializing state
             log("Initializing database...");
