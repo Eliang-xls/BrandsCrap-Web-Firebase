@@ -120,11 +120,16 @@
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
                         <div>
                             <h2 class="text-lg font-semibold text-gray-700">Explore Collected Data</h2>
-                            <p class="text-sm text-gray-500 mt-1">Search, review, and export all collected brand information.</p>
+                            <p class="text-sm text-gray-500 mt-1">Search, review, import, and export all collected brand information.</p>
                         </div>
                         <button id="exportDataButton" class="bg-green-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-green-700 transition duration-300 flex items-center mt-3 sm:mt-0">
                             <span class="mr-2">↓</span> Export Data
                         </button>
+                        <button id="importDataButton" class="bg-blue-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-blue-700 transition duration-300 flex items-center mt-3 sm:mt-0 mr-2">
+                            <span class="mr-2">↑</span> Import Data
+                        </button>
+                        <input type="file" id="importFileInput" accept=".json,.csv" class="hidden">
+
                     </div>
                     <input id="searchInput" type="text" placeholder="Search by name, founder, or classification..." class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300">
                     <div class="overflow-x-auto">
@@ -278,6 +283,152 @@
 
         const logsContainer = document.getElementById('logsContainer');
         const alertsContainer = document.getElementById('alertsContainer');
+
+        // --- Import Data Logic ---
+        const importDataButton = document.getElementById('importDataButton');
+        const importFileInput = document.getElementById('importFileInput');
+
+        importDataButton.addEventListener('click', () => {
+            importFileInput.value = ''; // Clear previous selection
+            importFileInput.click();
+        });
+
+        importFileInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const fileName = file.name.toLowerCase();
+
+            try {
+                let importedBrands = [];
+                if (fileName.endsWith('.json')) {
+                    importedBrands = await importBrandsFromJSON(file);
+                } else if (fileName.endsWith('.csv')) {
+                    importedBrands = await importBrandsFromCSV(file);
+                } else {
+                    addAlert("Unsupported file type. Please import a .json or .csv file.", "error");
+                    return;
+                }
+
+                if (!Array.isArray(importedBrands) || importedBrands.length === 0) {
+                    addAlert("No valid brands found in the file.", "error");
+                    return;
+                }
+
+                // Overwrite: replace all current brands with imported
+                state.allBrands = importedBrands;
+
+                // Save to IndexedDB (overwrite all)
+                await clearAllBrands();
+                await saveBrands(importedBrands);
+
+                addAlert(`Imported ${importedBrands.length} brands successfully!`, "success");
+                log(`Imported ${importedBrands.length} brands from file.`, "success");
+
+                // Recompute stats
+                state.stats.brandsBySource = {};
+                importedBrands.forEach(b => {
+                    state.stats.brandsBySource[b.source] = (state.stats.brandsBySource[b.source] || 0) + 1;
+                });
+                updateUI();
+            } catch (err) {
+                addAlert("Failed to import file: " + err.message, "error");
+                log("Import error: " + err, "error");
+            }
+        });
+
+        async function importBrandsFromJSON(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const brands = JSON.parse(e.target.result);
+                        if (!Array.isArray(brands)) return reject(new Error("JSON root is not an array"));
+                        resolve(brands.filter(validateBrand));
+                    } catch (err) {
+                        reject(err);
+                    }
+                };
+                reader.onerror = () => reject(reader.error);
+                reader.readAsText(file);
+            });
+        }
+
+        async function importBrandsFromCSV(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const text = e.target.result;
+                        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+                        if (lines.length < 2) return resolve([]);
+                        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+                        const expected = ['name','founder','classification','source','logo'];
+                        if (!expected.every(h => headers.includes(h))) {
+                            return reject(new Error("CSV missing required headers"));
+                        }
+                        const idx = h => headers.indexOf(h);
+
+                        const brands = lines.slice(1).map(line => {
+                            const cells = parseCSVRow(line);
+                            // Defensive for incomplete rows
+                            if (cells.length < headers.length) return null;
+                            return {
+                                name: cells[idx('name')],
+                                founder: cells[idx('founder')],
+                                classification: cells[idx('classification')],
+                                source: cells[idx('source')],
+                                logo: cells[idx('logo')]
+                            }
+                        }).filter(validateBrand);
+                        resolve(brands);
+                    } catch (err) {
+                        reject(err);
+                    }
+                };
+                reader.onerror = () => reject(reader.error);
+                reader.readAsText(file);
+            });
+        }
+
+        // Basic CSV row parser that handles quoted fields and commas
+        function parseCSVRow(row) {
+            const result = [];
+            let inQuotes = false, value = "";
+            for (let i = 0; i < row.length; ++i) {
+                const char = row[i];
+                if (char === '"' && (i === 0 || row[i-1] !== '\\')) {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(value.replace(/^"|"$/g, '').replace(/""/g, '"'));
+                    value = "";
+                } else {
+                    value += char;
+                }
+            }
+            result.push(value.replace(/^"|"$/g, '').replace(/""/g, '"'));
+            return result;
+        }
+
+        function validateBrand(b) {
+            return b && typeof b.name === 'string' && typeof b.source === 'string';
+        }
+
+        // Clear all brands in IndexedDB
+        async function clearAllBrands() {
+            try {
+                const db = await initDatabase();
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(BRAND_STORE, 'readwrite');
+                    const store = transaction.objectStore(BRAND_STORE);
+                    const req = store.clear();
+                    req.onsuccess = () => resolve();
+                    req.onerror = () => reject(req.error);
+                });
+            } catch (e) {
+                log('Failed to clear brands: ' + e, 'error');
+            }
+        }
+
 
         // --- Local Database (IndexedDB) ---
         const DB_NAME = 'brandsCrapDB';
